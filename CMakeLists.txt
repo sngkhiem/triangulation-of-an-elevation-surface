@@ -7,7 +7,7 @@ if(TARGET external-qhull)
 
 	set(SOURCES filter_triangulation.cpp qhull_tools.cpp)
 
-	set(HEADERS filter_triangulation.h qhull_tools.h Point.h OnSegment.h SegmentDistance.h InsidePolygon.h)
+	set(HEADERS filter_triangulation.h qhull_tools.h Point.h OnSegment.h SegmentDistance.h InsidePolygon.h SegmentIntersection.h)
 
 	add_meshlab_plugin(filter_triangulation ${SOURCES} ${HEADERS})
 
