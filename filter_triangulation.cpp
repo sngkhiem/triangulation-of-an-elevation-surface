@@ -1,10 +1,11 @@
 #include "filter_triangulation.h"
-#include<Point.h>
-#include<OnSegment.h>
-#include<SegmentDistance.h>
-#include<InsidePolygon.h>
 #include "qhull_tools.h"
 #include <Eigen/Dense>
+#include <InsidePolygon.h>
+#include <OnSegment.h>
+#include <Point.h>
+#include <SegmentDistance.h>
+#include <SegmentIntersection.h>
 #include <vcg/complex/algorithms/convex_hull.h>
 
 using namespace std;
@@ -12,7 +13,8 @@ using namespace vcg;
 
 const coordT EPS = 1e-9;
 
-struct MyPoint {
+struct MyPoint
+{
 	coordT x, y;
 };
 
@@ -23,34 +25,17 @@ struct MyEdge
 	// adj vertex (which form with this edge to be a triangle)
 	coordT adjX, adjY;
 
-	 // Define equality operator for MyEdge struct
-	bool operator==(const MyEdge& other) const {
+	// Define equality operator for MyEdge struct
+	bool operator==(const MyEdge& other) const
+	{
 		return (x1 == other.x1 && y1 == other.y1 && x2 == other.x2 && y2 == other.y2) ||
 			   (x1 == other.x2 && y1 == other.y2 && x2 == other.x1 && y2 == other.y1);
 	}
 };
 
-namespace std {
-template<>
-struct hash<MyEdge>
-{
-	size_t operator()(const MyEdge& edge) const
-	{
-		size_t hash_val = 0;
-		hash_val ^= hash<coordT> {}(edge.x1) + 0x9e3779b9 + (hash_val << 6) + (hash_val >> 2);
-		hash_val ^= hash<coordT> {}(edge.y1) + 0x9e3779b9 + (hash_val << 6) + (hash_val >> 2);
-		hash_val ^= hash<coordT> {}(edge.x2) + 0x9e3779b9 + (hash_val << 6) + (hash_val >> 2);
-		hash_val ^= hash<coordT> {}(edge.y2) + 0x9e3779b9 + (hash_val << 6) + (hash_val >> 2);
-		return hash_val;
-	}
-};
-}
-
 QhullPlugin::QhullPlugin()
 {
-	typeList = {
-		FP_TRIANGULATION
-	};
+	typeList = {FP_TRIANGULATION};
 
 	for (ActionIDType tt : types())
 		actionList.push_back(new QAction(filterName(tt), this));
@@ -68,7 +53,8 @@ QString QhullPlugin::pluginName() const
 QString QhullPlugin::filterName(ActionIDType f) const
 {
 	switch (f) {
-	case FP_TRIANGULATION: return QString("Triangulation: Elevation surface structured by a sparse 3D grid");
+	case FP_TRIANGULATION:
+		return QString("Triangulation: Elevation surface structured by a sparse 3D grid");
 	default: assert(0); return QString();
 	}
 }
@@ -76,7 +62,10 @@ QString QhullPlugin::filterName(ActionIDType f) const
 QString QhullPlugin::pythonFilterName(ActionIDType filterId) const
 {
 	switch (filterId) {
-	case FP_TRIANGULATION: return QString("Method to triangulate an elevation surface structured in a sparse 3D grid by using a fast search algorithm based on the 2D Delaunay triangulation");
+	case FP_TRIANGULATION:
+		return QString(
+			"Method to triangulate an elevation surface structured in a sparse 3D grid by using a "
+			"fast search algorithm based on the 2D Delaunay triangulation");
 	default: assert(0); return QString();
 	}
 }
@@ -85,7 +74,9 @@ QString QhullPlugin::filterInfo(ActionIDType filterId) const
 {
 	switch (filterId) {
 	case FP_TRIANGULATION:
-		return QString("Method to triangulate an elevation surface structured in a sparse 3D grid by using a fast search algorithm based on the 2D Delaunay triangulation");
+		return QString(
+			"Method to triangulate an elevation surface structured in a sparse 3D grid by using a "
+			"fast search algorithm based on the 2D Delaunay triangulation");
 	default: assert(0);
 	}
 	return QString("Error: Unknown Filter");
@@ -120,7 +111,7 @@ coordT* readpointsFromMesh(int* numpoints, int* dimension, MeshModel& m)
 
 	coords = points = (coordT*) malloc((*numpoints) * (*dimension) * sizeof(coordT));
 
-	int cnt = 0;
+	int                    cnt = 0;
 	CMeshO::VertexIterator vi;
 	for (vi = m.cm.vert.begin(); vi != m.cm.vert.end(); ++vi)
 		if (!(*vi).IsD()) {
@@ -133,7 +124,15 @@ coordT* readpointsFromMesh(int* numpoints, int* dimension, MeshModel& m)
 	return (points);
 }
 
-bool isInCircumcircle(coordT pX1, coordT pY1, coordT pX2, coordT pY2, coordT pX3, coordT pY3, coordT pX, coordT pY)
+bool isInCircumcircle(
+	coordT pX1,
+	coordT pY1,
+	coordT pX2,
+	coordT pY2,
+	coordT pX3,
+	coordT pY3,
+	coordT pX,
+	coordT pY)
 {
 	coordT centerX, centerY;
 	coordT a1, b1, d1, a2, b2, d2;
@@ -166,27 +165,35 @@ bool isInCircumcircle(coordT pX1, coordT pY1, coordT pX2, coordT pY2, coordT pX3
 	 - If the cross product is < 0, then this point is in the left side of the given edge
 	 - If the cross product = 0, then this point and this edge is collinear
 */
-int isRight(MyEdge edge, coordT pX, coordT pY) 
+int isRight(MyEdge edge, coordT pX, coordT pY)
 {
-	if ((edge.x2 - edge.x1) * (pY - edge.y1) - (pX - edge.x1) * (edge.y2 - edge.y1) > 0) // In the right
-		return 1; 
-	else if ((edge.x2 - edge.x1) * (pY - edge.y1) - (pX - edge.x1) * (edge.y2 - edge.y1) < 0) // In the left
+	if ((edge.x2 - edge.x1) * (pY - edge.y1) - (pX - edge.x1) * (edge.y2 - edge.y1) >
+		0) // In the right
+		return 1;
+	else if (
+		(edge.x2 - edge.x1) * (pY - edge.y1) - (pX - edge.x1) * (edge.y2 - edge.y1) <
+		0) // In the left
 		return 0;
-	else if ((edge.x2 - edge.x1) * (pY - edge.y1) - (pX - edge.x1) * (edge.y2 - edge.y1) == 0) // collinear
+	else if (
+		(edge.x2 - edge.x1) * (pY - edge.y1) - (pX - edge.x1) * (edge.y2 - edge.y1) ==
+		0) // collinear
 		return 2;
 }
 
 bool compareEqual(coordT a, coordT b)
 {
-	return abs(a-b) < EPS;
+	return abs(a - b) < EPS;
 }
-
 
 // Check if a given point is lied in a given rectangle
 bool isIn(MyPoint point, MyPoint corner1, MyPoint corner2, MyPoint corner3, MyPoint corner4)
 {
-	vector<P> v = { P{corner1.x, corner1.y}, P{corner2.x, corner2.y}, P{corner3.x, corner3.y}, P {corner4.x, corner4.y} };
-	return inPolygon(v, P{point.x, point.y}, false);
+	vector<P> v = {
+		P {corner1.x, corner1.y},
+		P {corner2.x, corner2.y},
+		P {corner3.x, corner3.y},
+		P {corner4.x, corner4.y}};
+	return inPolygon(v, P {point.x, point.y}, false);
 }
 
 std::map<std::string, QVariant> QhullPlugin::applyFilter(
@@ -201,28 +208,29 @@ std::map<std::string, QVariant> QhullPlugin::applyFilter(
 
 	switch (ID(filter)) {
 	case FP_TRIANGULATION: {
-		MeshModel  &m  = *md.mm();
-		MeshModel &nm  = *md.addNewMesh("", "Triangulation 2d");
-		MeshModel &fm  = *md.addNewMesh("", "Final Triangulation");
-		int dim = 3;
-		int numpoints = m.cm.vn;
-		int row = sqrt(numpoints);
-		int col = sqrt(numpoints);
-		coordT *points;
+		MeshModel&      m         = *md.mm();
+		MeshModel&      nm        = *md.addNewMesh("", "Triangulation 2d");
+		MeshModel&      fm        = *md.addNewMesh("", "Final Triangulation");
+		int             dim       = 3;
+		int             numpoints = m.cm.vn;
+		int             row       = sqrt(numpoints) + 1;
+		int             col       = sqrt(numpoints) + 1;
+		coordT*         points;
 		Eigen::MatrixXi sparseMatrix(row, col);
 		Eigen::MatrixXd zAxis(row, col);
 		sparseMatrix = Eigen::MatrixXi::Zero(row, col);
-		zAxis = Eigen::MatrixXd::Zero(row, col);
-		points = readpointsFromMesh(&numpoints, &dim, m);
+		zAxis        = Eigen::MatrixXd::Zero(row, col);
+		points       = readpointsFromMesh(&numpoints, &dim, m);
+
 		
-		//Convert 3d surface to 2d grid by eliminating the z coordinate
+		// Convert 3d surface to 2d grid by eliminating the z coordinate
 		for (int i = 0; i < numpoints; i++) {
 			Point3d curVertex = {points[i * dim], points[i * dim + 1], 0};
-			coordT curX = points[i * dim];
-			coordT curY = points[i * dim + 1];
+			coordT  curX      = points[i * dim];
+			coordT  curY      = points[i * dim + 1];
 			// Use sparse matrix as a lookup table
-			sparseMatrix((int)curX, (int)curY) = 1;
-			zAxis((int)curX, (int)curY) = points[i * dim + 2];
+			sparseMatrix((int) curX, (int) curY) = 1;
+			zAxis((int) curX, (int) curY)        = points[i * dim + 2];
 			tri::Allocator<CMeshO>::AddVertex(nm.cm, curVertex);
 		}
 		/* Create seed triangle */
@@ -235,10 +243,9 @@ std::map<std::string, QVariant> QhullPlugin::applyFilter(
 		tri::Allocator<CMeshO>::AddFace(nm.cm, p0, p1, p2);
 
 		/* Triangulating a surface */
-		queue<MyEdge> EdgePool;
-		unordered_set<MyEdge>   visited;
-		//vector<MyEdge> visited;
-		visited.insert(seedE3);
+		queue<MyEdge>  EdgePool;
+		vector<MyEdge> visited;
+		visited.push_back(seedE3);
 		// Add edge of seed triangle into edges pool
 		EdgePool.push(seedE3);
 		while (!EdgePool.empty()) {
@@ -299,7 +306,8 @@ std::map<std::string, QVariant> QhullPlugin::applyFilter(
 					isEdge = true;
 				if (i == corner4.x && j == corner4.y)
 					isEdge = true;
-				if (!isEdge && i >= 0.0 && j >= 0.0 && i <= sqrt(numpoints) - 1 && j <= sqrt(numpoints) - 1 &&
+				if (!isEdge && i >= 0.0 && j >= 0.0 && i <= sqrt(numpoints) &&
+					j <= sqrt(numpoints) &&
 					isIn(curPoint, corner1, corner2, corner3, corner4) &&
 					sparseMatrix((int) i, (int) j) == 1) {
 					neighborPoints.push_back({i, j});
@@ -322,7 +330,15 @@ std::map<std::string, QVariant> QhullPlugin::applyFilter(
 				// Check if this point achieve delaunay criteration
 				bool isFalse = false;
 				for (int ii = 0; ii < neighborPoints.size(); ii++) {
-					if (isInCircumcircle(curEdge.x1, curEdge.y1, curEdge.x2, curEdge.y2, curX, curY, neighborPoints[ii].x, neighborPoints[ii].y)) {
+					if (isInCircumcircle(
+							curEdge.x1,
+							curEdge.y1,
+							curEdge.x2,
+							curEdge.y2,
+							curX,
+							curY,
+							neighborPoints[ii].x,
+							neighborPoints[ii].y)) {
 						isFalse = true;
 						break;
 					}
@@ -354,19 +370,51 @@ std::map<std::string, QVariant> QhullPlugin::applyFilter(
 				Point3d p0 = {curEdge.x1, curEdge.y1, 0.0};
 				Point3d p1 = {curEdge.x2, curEdge.y2, 0.0};
 				Point3d p2 = {bestPX, bestPY, 0.0};
-				tri::Allocator<CMeshO>::AddFace(nm.cm, p0, p1, p2);
+				
 				// Add new edge
+				int    cnt   = 0;
+				bool   flag0 = true;
+				bool   flag1 = true;
+				bool   flagIntersect = true;
 				MyEdge newE0 = {curEdge.x1, curEdge.y1, bestPX, bestPY, curEdge.x2, curEdge.y2};
 				MyEdge newE1 = {curEdge.x2, curEdge.y2, bestPX, bestPY, curEdge.x1, curEdge.y1};
 
-				if (visited.find(newE0) == visited.end()) {
-					EdgePool.push(newE0);
-					visited.insert(newE0);
+
+				for (auto e : visited) {
+					if (newE0 == e)
+						flag0 = false, cnt++;
+					if (newE1 == e)
+						flag1 = false, cnt++;
+					// First edge
+					if (segInter(
+							P {curEdge.x1, curEdge.y1},
+							P {bestPX, bestPY},
+							P {e.x1, e.y1},
+							P {e.x2, e.y2}))
+						flagIntersect = false;
+
+					// Second edge
+					if (segInter(
+							P {curEdge.x2, curEdge.y2},
+							P {bestPX, bestPY},
+							P {e.x1, e.y1},
+							P {e.x2, e.y2}))
+						flagIntersect = false;
 				}
 
-				if (visited.find(newE1) == visited.end()) {
-					EdgePool.push(newE1);
-					visited.insert(newE1);
+
+				if (cnt != 2 && flagIntersect) {
+					tri::Allocator<CMeshO>::AddFace(nm.cm, p0, p1, p2);
+
+					if (flag0) {
+						EdgePool.push(newE0);
+						visited.push_back(newE0);
+					}
+
+					if (flag1) {
+						EdgePool.push(newE1);
+						visited.push_back(newE1);
+					}
 				}
 			}
 		}
