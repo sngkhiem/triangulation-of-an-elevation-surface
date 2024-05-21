@@ -11,6 +11,8 @@
 using namespace std;
 using namespace vcg;
 
+const int    dX[] = {0, 0, 1, -1};
+const int    dY[] = {1, -1, 0, 0};
 const coordT EPS = 1e-9;
 
 struct MyPoint
@@ -213,24 +215,59 @@ std::map<std::string, QVariant> QhullPlugin::applyFilter(
 		MeshModel&      fm        = *md.addNewMesh("", "Final Triangulation");
 		int             dim       = 3;
 		int             numpoints = m.cm.vn;
-		int             row       = sqrt(numpoints) + 1;
-		int             col       = sqrt(numpoints) + 1;
 		coordT*         points;
-		Eigen::MatrixXi sparseMatrix(row, col);
-		Eigen::MatrixXd zAxis(row, col);
-		sparseMatrix = Eigen::MatrixXi::Zero(row, col);
-		zAxis        = Eigen::MatrixXd::Zero(row, col);
 		points       = readpointsFromMesh(&numpoints, &dim, m);
 
-		
+		coordT maxX = -1.0, maxY = -1.0;
+		for (int i = 0; i < numpoints; i++) {
+			maxX = max(maxX, points[i * dim]);
+			maxY = max(maxY, points[i * dim + 1]);
+		}
+		int row = (int) maxX;
+		int col = (int) maxY;
+		row++, col++;
+		vector<vector<int>>     lookup, boundary;
+		vector<vector<coordT>> zAxis;
+		lookup.resize(row);
+		boundary.resize(row);
+		zAxis.resize(row);
+		for (int i = 0; i < row; i++) {
+			lookup[i].resize(col, 0);
+			boundary[i].resize(col, 0);
+			zAxis[i].resize(col, 0.0);
+		}
+
+		for (int i = 0; i < numpoints; i++) {
+			int curX           = (int) points[i * dim];
+			int curY           = (int) points[i * dim + 1];
+			lookup[curX][curY] = 1;
+			if (curX == 0 || curX == row - 1 || curY == 0 || curY == col - 1)
+				boundary[curX][curY] = 1;
+		}
+
+		for (int i = 0; i < numpoints; i++) {
+			int curX = (int) points[i * dim];
+			int curY = (int) points[i * dim + 1];
+			if (boundary[curX][curY] == 0) {
+				for (int j = 0; j < 4; j++) {
+					int nxtX = curX + dX[j];
+					int nxtY = curY + dY[j];
+					if (nxtX >= 0 && nxtX <= row - 1 && nxtY >= 0 && nxtY <= col - 1)
+						if (!lookup[nxtX][nxtY]) {
+							boundary[curX][curY] = 2;
+							break;
+						}
+				}
+			}
+		}
+
 		// Convert 3d surface to 2d grid by eliminating the z coordinate
 		for (int i = 0; i < numpoints; i++) {
 			Point3d curVertex = {points[i * dim], points[i * dim + 1], 0};
 			coordT  curX      = points[i * dim];
 			coordT  curY      = points[i * dim + 1];
 			// Use sparse matrix as a lookup table
-			sparseMatrix((int) curX, (int) curY) = 1;
-			zAxis((int) curX, (int) curY)        = points[i * dim + 2];
+			zAxis[(int) curX][(int) curY] = points[i * dim + 2];
 			tri::Allocator<CMeshO>::AddVertex(nm.cm, curVertex);
 		}
 		/* Create seed triangle */
@@ -307,9 +344,8 @@ std::map<std::string, QVariant> QhullPlugin::applyFilter(
 				if (i == corner4.x && j == corner4.y)
 					isEdge = true;
 				if (!isEdge && i >= 0.0 && j >= 0.0 && i <= sqrt(numpoints) &&
-					j <= sqrt(numpoints) &&
-					isIn(curPoint, corner1, corner2, corner3, corner4) &&
-					sparseMatrix((int) i, (int) j) == 1) {
+					j <= sqrt(numpoints) && isIn(curPoint, corner1, corner2, corner3, corner4) &&
+					lookup[(int) i][(int) j]) {
 					neighborPoints.push_back({i, j});
 				}
 				if (compareEqual(j, maxY)) {
@@ -370,50 +406,59 @@ std::map<std::string, QVariant> QhullPlugin::applyFilter(
 				Point3d p0 = {curEdge.x1, curEdge.y1, 0.0};
 				Point3d p1 = {curEdge.x2, curEdge.y2, 0.0};
 				Point3d p2 = {bestPX, bestPY, 0.0};
-				
+
 				// Add new edge
-				int    cnt   = 0;
-				bool   flag0 = true;
-				bool   flag1 = true;
+				int    cnt           = 0;
+				bool   flag0         = true;
+				bool   flag1         = true;
 				bool   flagIntersect = true;
+				bool   flagBoundary  = true;
 				MyEdge newE0 = {curEdge.x1, curEdge.y1, bestPX, bestPY, curEdge.x2, curEdge.y2};
 				MyEdge newE1 = {curEdge.x2, curEdge.y2, bestPX, bestPY, curEdge.x1, curEdge.y1};
 
+				int cntHole = 0;
+				if (boundary[curEdge.x1][curEdge.y1] == 2)
+					cntHole++;
+				if (boundary[curEdge.x2][curEdge.y2] == 2)
+					cntHole++;
+				if (boundary[bestPX][bestPY] == 2)
+					cntHole++;
 
-				for (auto e : visited) {
-					if (newE0 == e)
-						flag0 = false, cnt++;
-					if (newE1 == e)
-						flag1 = false, cnt++;
-					// First edge
-					if (segInter(
-							P {curEdge.x1, curEdge.y1},
-							P {bestPX, bestPY},
-							P {e.x1, e.y1},
-							P {e.x2, e.y2}))
-						flagIntersect = false;
+				if (cntHole <= 2) {
+					for (auto e : visited) {
+						if (newE0 == e)
+							flag0 = false, cnt++;
+						if (newE1 == e)
+							flag1 = false, cnt++;
+						// First edge
+						if (segInter(
+								P {curEdge.x1, curEdge.y1},
+								P {bestPX, bestPY},
+								P {e.x1, e.y1},
+								P {e.x2, e.y2}))
+							flagIntersect = false;
 
-					// Second edge
-					if (segInter(
-							P {curEdge.x2, curEdge.y2},
-							P {bestPX, bestPY},
-							P {e.x1, e.y1},
-							P {e.x2, e.y2}))
-						flagIntersect = false;
-				}
-
-
-				if (cnt != 2 && flagIntersect) {
-					tri::Allocator<CMeshO>::AddFace(nm.cm, p0, p1, p2);
-
-					if (flag0) {
-						EdgePool.push(newE0);
-						visited.push_back(newE0);
+						// Second edge
+						if (segInter(
+								P {curEdge.x2, curEdge.y2},
+								P {bestPX, bestPY},
+								P {e.x1, e.y1},
+								P {e.x2, e.y2}))
+							flagIntersect = false;
 					}
 
-					if (flag1) {
-						EdgePool.push(newE1);
-						visited.push_back(newE1);
+					if (cnt != 2 && flagIntersect) {
+						tri::Allocator<CMeshO>::AddFace(nm.cm, p0, p1, p2);
+
+						if (flag0) {
+							EdgePool.push(newE0);
+							visited.push_back(newE0);
+						}
+
+						if (flag1) {
+							EdgePool.push(newE1);
+							visited.push_back(newE1);
+						}
 					}
 				}
 			}
@@ -430,13 +475,13 @@ std::map<std::string, QVariant> QhullPlugin::applyFilter(
 				coordT cur1X, cur1Y, cur2X, cur2Y, cur3X, cur3Y, cur1Z, cur2Z, cur3Z;
 				cur1X = (*fi).P(0)[0];
 				cur1Y = (*fi).P(0)[1];
-				cur1Z = zAxis(cur1X, cur1Y);
+				cur1Z = zAxis[cur1X][cur1Y];
 				cur2X = (*fi).P(1)[0];
 				cur2Y = (*fi).P(1)[1];
-				cur2Z = zAxis(cur2X, cur2Y);
+				cur2Z = zAxis[cur2X][cur2Y];
 				cur3X = (*fi).P(2)[0];
 				cur3Y = (*fi).P(2)[1];
-				cur3Z = zAxis(cur3X, cur3Y);
+				cur3Z = zAxis[cur3X][cur3Y];
 
 				Point3d p0 = {cur1X, cur1Y, cur1Z};
 				Point3d p1 = {cur2X, cur2Y, cur2Z};
@@ -449,6 +494,7 @@ std::map<std::string, QVariant> QhullPlugin::applyFilter(
 		// Delete duplicate vertices and faces
 		tri::Clean<CMeshO>::RemoveDuplicateVertex(fm.cm);
 		tri::Clean<CMeshO>::RemoveDuplicateFace(fm.cm);
+
 	} break;
 	default: wrongActionCalled(filter);
 	}
