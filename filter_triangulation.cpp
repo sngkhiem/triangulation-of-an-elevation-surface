@@ -13,7 +13,7 @@ using namespace vcg;
 
 const int    dX[] = {0, 0, 1, -1};
 const int    dY[] = {1, -1, 0, 0};
-const coordT EPS = 1e-9;
+const coordT EPS  = 1e-9;
 
 struct MyPoint
 {
@@ -210,13 +210,13 @@ std::map<std::string, QVariant> QhullPlugin::applyFilter(
 
 	switch (ID(filter)) {
 	case FP_TRIANGULATION: {
-		MeshModel&      m         = *md.mm();
-		MeshModel&      nm        = *md.addNewMesh("", "Triangulation 2d");
-		MeshModel&      fm        = *md.addNewMesh("", "Final Triangulation");
-		int             dim       = 3;
-		int             numpoints = m.cm.vn;
-		coordT*         points;
-		points       = readpointsFromMesh(&numpoints, &dim, m);
+		MeshModel& m         = *md.mm();
+		MeshModel& nm        = *md.addNewMesh("", "Triangulation 2d");
+		MeshModel& fm        = *md.addNewMesh("", "Final Triangulation");
+		int        dim       = 3;
+		int        numpoints = m.cm.vn;
+		coordT*    points;
+		points = readpointsFromMesh(&numpoints, &dim, m);
 
 		coordT maxX = -1.0, maxY = -1.0;
 		for (int i = 0; i < numpoints; i++) {
@@ -226,7 +226,7 @@ std::map<std::string, QVariant> QhullPlugin::applyFilter(
 		int row = (int) maxX;
 		int col = (int) maxY;
 		row++, col++;
-		vector<vector<int>>     lookup, boundary;
+		vector<vector<int>>    lookup, boundary;
 		vector<vector<coordT>> zAxis;
 		lookup.resize(row);
 		boundary.resize(row);
@@ -409,6 +409,7 @@ std::map<std::string, QVariant> QhullPlugin::applyFilter(
 
 				// Add new edge
 				int    cnt           = 0;
+				bool   flagExBoundary = true;
 				bool   flag0         = true;
 				bool   flag1         = true;
 				bool   flagIntersect = true;
@@ -426,26 +427,21 @@ std::map<std::string, QVariant> QhullPlugin::applyFilter(
 
 				if (cntHole <= 2) {
 					for (auto e : visited) {
-						if (newE0 == e)
+						if (flag0 && newE0 == e)
 							flag0 = false, cnt++;
-						if (newE1 == e)
+						if (flag0 && newE1 == e)
 							flag1 = false, cnt++;
 						// First edge
-						if (segInter(
-								P {curEdge.x1, curEdge.y1},
-								P {bestPX, bestPY},
-								P {e.x1, e.y1},
-								P {e.x2, e.y2}))
+						if (e.x1 == newE0.x2 && e.y1 == newE0.y2) {
 							flagIntersect = false;
+						}
 
 						// Second edge
-						if (segInter(
-								P {curEdge.x2, curEdge.y2},
-								P {bestPX, bestPY},
-								P {e.x1, e.y1},
-								P {e.x2, e.y2}))
+						if (e.x1 == newE1.x2 && e.y1 == newE1.y2) {
 							flagIntersect = false;
-					}
+						}
+						
+					} 
 
 					if (cnt != 2 && flagIntersect) {
 						tri::Allocator<CMeshO>::AddFace(nm.cm, p0, p1, p2);
